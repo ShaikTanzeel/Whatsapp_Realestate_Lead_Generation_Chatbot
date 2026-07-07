@@ -1,0 +1,22 @@
+# Environment variables file
+.env
+
+# Docker persistent database and application directories
+docker/
+
+# OS-specific files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporary logs
+*.log
+
+# Redundant or temporary files to exclude from Git
+scripts/fix_nodes.py
+workflows/raw_extracted.txt
+flow.md
+learning_journal.md
+implementation_plan.md
+tasks.md
+notepad.md
