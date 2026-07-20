@@ -50,6 +50,11 @@ services:
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - WEBHOOK_URL=${WEBHOOK_URL}
+      - GOOGLE_SHEETS_ID=${GOOGLE_SHEETS_ID}
+      - META_PHONE_NUMBER_ID=${META_PHONE_NUMBER_ID}
+      - N8N_ENVS_MODE=allow
+      - N8N_ENVS_LIST=GOOGLE_SHEETS_ID,META_PHONE_NUMBER_ID
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n_storage:/home/node/.n8n
     depends_on:
@@ -70,4 +75,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  rag-api:
+    # Why: Builds the FastAPI service from our local rag_api directory.
+    build:
+      context: ./rag_api
+      dockerfile: Dockerfile
+    container_name: whatsapp_rag_api
+    restart: always
+    networks:
+      - whatsapp-net
+    ports:
+      - "8000:8000" # Why: Exposes port to localhost for host development and diagnostics.
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY} # Connectivity: Passes secret API key loaded from .env.
+      - DB_PATH=/app/data/transactions.duckdb # Connectivity: Points python script to mounted volume path.
+    volumes:
+      # Connectivity: Mounts workspace data folder to local container path.
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 

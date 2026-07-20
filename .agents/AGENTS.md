@@ -31,3 +31,9 @@ We build this system one micro-step at a time. Never dump an entire script, full
 2. **Build:** Provide the exact code, configuration, or instruction for *only that specific component*.
 3. **Pause & Verify:** Stop generating. Ask the user to build it, test it, and ask any clarifying questions. 
 4. **Wait:** Do not introduce the next concept, node, or script until the user explicitly confirms the current step is working and fully understood.
+
+### Code Commenting Standards
+
+Write concise, high-density comments focused on **Syntax**, **intent** and **connectivity** rather than syntax. 
+* **Map the Architecture:** Explicitly note how different components link together and identify where data flows next.
+* **Keep it Clean:** Avoid redundant lines. Use short, punchy phrases that allow anyone reading the file to instantly grasp exactly what is happening and where.

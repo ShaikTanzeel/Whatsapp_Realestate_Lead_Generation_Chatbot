@@ -20,3 +20,9 @@ learning_journal.md
 implementation_plan.md
 tasks.md
 notepad.md
+
+# Local database files and transaction data
+data/
+*.duckdb
+*.db
+

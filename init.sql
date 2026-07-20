@@ -54,3 +54,12 @@ CREATE TABLE IF NOT EXISTS lead_qualification (
     consent_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Create user_states table to track handoff and delete states
+CREATE TABLE IF NOT EXISTS user_states (
+    phone_number VARCHAR(20) PRIMARY KEY,
+    current_state VARCHAR(30) NOT NULL DEFAULT 'NORMAL',
+    metadata JSONB DEFAULT '{}',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
