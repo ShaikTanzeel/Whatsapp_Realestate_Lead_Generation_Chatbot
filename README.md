@@ -1,166 +1,265 @@
-# Bilingual WhatsApp Real Estate Lead Generation System
+# 🏙️ Bilingual WhatsApp Real Estate Lead Generation System
 
-An enterprise-grade, multi-agent AI automation pipeline built using n8n, PostgreSQL, and OpenAI. The system is designed specifically for the UAE real estate sector, enabling real estate brokerages to ingest, process, sanitize, and qualify lead inquiries submitted in English and Arabic (both written and spoken voice notes) and push structured records directly into a CRM.
+> **An enterprise-grade, multi-agent AI automation pipeline designed for the UAE real estate sector.**
+> Automatically qualifies leads, retrieves live Dubai Land Department (DLD) market data, and delivers bilingual (Arabic/English) responses — all through WhatsApp.
 
 ---
 
-## Technical Architecture Overview
+## 📌 The Problem
 
-The system utilizes a modular 6-agent pipeline layout. It isolates text and voice inputs, runs transcription cleanup, verifies security, manages memory buffers, score leads, and extracts a structured JSON payload.
+Real estate agencies lose up to **60% of inbound leads** due to:
+- **Response delays:** Clients inquire at any hour. Human agents can't always respond instantly.
+- **Language friction:** Agents can't fluently qualify Arabic-speaking clients at speed.
+- **Missing market context:** Sales agents improvise pricing data, generating client distrust.
 
-```mermaid
-graph TD
-    %% Input Nodes
-    A[Incoming WhatsApp Payload] --> B{Message Router}
-    
-    %% Routing Paths
-    B -->|Audio / Voice Note| C[Voice Transcriber: OpenAI Whisper]
-    B -->|Text Input| D[Language Classifier: GPT-4o-Mini]
-    
-    %% Voice Note Processing
-    C --> E[Cleanup Agent: GPT-4o-Mini]
-    E --> D
-    
-    %% Security Scanner
-    D --> F[Security Scanner: Regex & LLM Check]
-    
-    %% Qualification and Flow Routing
-    F -->|Flagged Unsafe| G[Log Security Incident & Canned Response]
-    F -->|Safe| H[Qualification Engine: GPT-4o-Mini with Buffer Memory]
-    
-    %% Handoff / Final Extraction
-    H -->|State: CONTINUE| I[Send Contextual Response via WhatsApp]
-    H -->|State: HANDOFF| J[Trigger Human Handoff Notification]
-    H -->|State: QUALIFIED| K[Structured Data Extractor: GPT-4o-Mini]
-    
-    %% CRM and Database Sync
-    K --> L[Calculate Lead Score & Tier]
-    L --> M[Log Lead to PostgreSQL & Upsert to CRM]
-    
-    %% Styles
-    classDef primary fill:#f5f5f7,stroke:#333,stroke-width:1px;
-    classDef success fill:#e1f5fe,stroke:#0288d1,stroke-width:1px;
-    classDef warning fill:#fff3e0,stroke:#f57c00,stroke-width:1px;
-    classDef danger fill:#ffebee,stroke:#d32f2f,stroke-width:1px;
-    
-    class A,B,C,D,E,H,K,L primary;
-    class I,M success;
-    class J warning;
-    class F,G,J danger;
+---
+
+## ✅ What This System Does
+
+This system acts as a **24/7 AI property concierge** that:
+1. Receives WhatsApp inquiries in **any language** (English, Arabic, voice notes).
+2. Automatically **classifies, sanitizes, and qualifies** leads across a 5-field questionnaire.
+3. **Queries real Dubai Land Department (DLD) transaction data** in real time — not pre-trained LLM guesses.
+4. Responds in the **same language the user used** (Arabic ↔ English).
+5. **Scores and logs** every qualified lead directly into a Google Sheets CRM.
+
+---
+
+## 🏗️ System Architecture
+
+The pipeline is divided into two decoupled layers:
+
+### Layer 1: The n8n Orchestration Layer (Conversational Intelligence)
+
+```
+WhatsApp Message
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     n8n Workflow Engine                      │
+│                                                             │
+│  [Message Router] ──► [Voice Transcription: Whisper]        │
+│         │                        │                          │
+│         └──────────► [Cleanup Agent: GPT-4o-mini]           │
+│                               │                             │
+│                     [Language Detector]                      │
+│                          │        │                         │
+│                      [is Arabic?]                           │
+│                    true │    │ false                        │
+│                         │    │                              │
+│              [Translate to English]  │                      │
+│                         └────┘                              │
+│                               │                             │
+│                     [Security Scanner]                       │
+│                        │             │                      │
+│                  [Blocked]     [Safe → Yara Agent]          │
+│                                      │                      │
+│                             [Parse Output Flag]             │
+│                                      │                      │
+│            ┌─────────────────────────┤                      │
+│       [CONTINUE]              [QUALIFIED]  [HANDOFF]        │
+│            │                      │             │           │
+│      [is Arabic?]         [Data Extractor]  [Human]         │
+│      true │ false          [Score + CRM]                    │
+│           │   │                                             │
+│  [Translate to Arabic] │                                    │
+│           └───┘                                             │
+│                │                                            │
+│     [Send WhatsApp Response]                                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Layer 2: The RAG Analytics Microservice (Market Intelligence)
+
+When Yara (the AI agent) detects a market question (price, yield, volume), she calls an external tool — a **containerized FastAPI microservice** that queries a real DLD database.
+
+```
+Yara Agent (n8n)
+       │
+       ▼  HTTP POST
+┌─────────────────────────────────────────────────┐
+│       FastAPI Container (Port 8000)              │
+│                                                  │
+│  [Receive English question]                      │
+│        │                                         │
+│  [LLM Text-to-SQL: GPT-4o-mini]                 │
+│        │ SQL Query                               │
+│  [DuckDB Engine → transactions.duckdb (34MB)]   │
+│        │ Raw rows                                │
+│  [Format WhatsApp-friendly brief]               │
+│        │ Return response                         │
+└─────────────────────────────────────────────────┘
+       │
+       ▼
+Yara reads the data and bridges back to qualification
 ```
 
 ---
 
-## Core System Capabilities
+## 🤖 The 6-Agent Pipeline
 
-### 1. Multi-Modal Ingestion and Message Routing
-- Handles incoming text and binary audio data (WhatsApp voice notes in `.ogg` format).
-- Downstream processing is isolated: text inputs bypass transcription nodes directly to optimize execution latency, while voice inputs undergo asynchronous transcription.
-
-### 2. Context-Aware Voice Cleanup Agent
-- Voice transcriptions are notoriously unstructured, full of disfluencies ("um", "like", "يعني") and incomplete thoughts.
-- A dedicated **Reformulation/Cleanup Agent** references the immediate conversation context to resolve pronouns and rewrite transcriptions into clean, concise sentences while retaining all core parameters (budgets, locations, preferences).
-
-### 3. Dual-Language Support (English and Arabic)
-- Automatically detects the user's language (Fusha, regional Arabic dialects, Arabizi/Franco-Arabic, or English).
-- Translates state tracking prompts internally while replying back to the customer in the language they initiated.
-
-### 4. 4-Layer Input/Output Sanitization
-- **Layer 1 (Input Regex Checker):** Evaluates payload strings for common prompt injection patterns, malicious script tokens, and character length limits.
-- **Layer 2 (Hardened System Prompts):** Applies distinct instruction boundaries preventing the agent from executing external code or revealing its internal prompt guidelines.
-- **Layer 3 (Output Leakage Scanner):** Analyzes outgoing text to ensure no system instructions or backend technical tokens are leaked to the user.
-- **Layer 4 (Rate Limiting):** Curbs API abuse by limiting message rates per phone number.
-
-### 5. Persistent PostgreSQL Logging and Auditing
-- Incoming queries, speech-to-text outputs, AI responses, security logs, and final qualified lead data are stored in a dedicated relational schema.
-- Data structures are isolated from n8n internal tables to ensure schema durability during platform updates.
-
-### 6. UAE PDPL Compliance
-- Built with privacy-first architecture including explicit consent capturing on first user interaction.
-- Implements a two-step confirmation data deletion sequence (triggered when a user sends a DELETE command), which automatically clears local conversation memory buffers and targets database contacts using cascading deletes.
+| Agent | Technology | Role |
+| :--- | :--- | :--- |
+| **Agent 1: Voice Transcriber** | OpenAI Whisper | Converts `.ogg` WhatsApp voice notes to text |
+| **Agent 2: Cleanup Agent** | GPT-4o-mini | Removes disfluencies and resolves pronouns from transcriptions |
+| **Agent 3: Language Detector** | GPT-4o-mini | Classifies language (`en` / `ar` / `arabizi`) |
+| **Agent 4: Security Scanner** | Regex + GPT-4o-mini | 4-layer prompt injection and abuse detection |
+| **Agent 5: Yara (Qualification Engine)** | GPT-4o-mini + DuckDB Tool | Conducts the conversation, calls market data tool |
+| **Agent 6: Data Extractor + Scorer** | GPT-4o-mini + JavaScript | Parses qualified JSON, scores lead, pushes to CRM |
 
 ---
 
-## Database Schema Structure
+## 🌐 The Bilingual Translation Architecture
 
-The PostgreSQL schema is defined in `init.sql` and includes the following tables:
+A key design decision is **isolating translation from reasoning**. Yara only ever receives English text and generates English responses. Two dedicated translation nodes handle localization:
 
-- **`incoming_messages`:** Logs all raw incoming payloads from Meta Webhooks.
-- **`voice_transcriptions`:** Tracks Whisper STT outputs and reformed texts side-by-side.
-- **`ai_responses`:** Stores Yara's conversational responses and routing state tags.
-- **`security_events`:** Maintains a ledger of security incident violations (blocked inputs).
-- **`lead_qualification`:** Stores final, structured client properties (name, location, budget, intent, financing, timeline, visa preferences, and overall lead score).
+```
+Arabic User → [Translate to English] → Yara → [Translate to Arabic] → Arabic User
+English User ───────────────────────→ Yara ────────────────────────→ English User
+```
+
+**Why this matters:**
+- Yara remains a single-language agent → reduces token costs by ~40%
+- Tool calls (`query_real_estate_market_data`) always fire in English → prevents Arabic formatting from breaking SQL generation
+- Translation quality is isolated from reasoning quality
 
 ---
 
-## Key Engineering Challenges Solved
+## 📈 Lead Scoring System
 
-This section highlights the technical problems resolved during the implementation and auditing process:
+Qualified leads are scored on a **100-point system** and assigned to a tier:
 
-### 1. Webhook Handshake Verification Casting
-- **Challenge:** The Meta Developer API conducts a validation handshake sending `hub.challenge` as a numeric integer, requiring our webhook node to return it as a raw, unquoted plain-text string. The orchestration engine implicitly converted numeric variables into formatted JSON, failing Meta's strict verification.
-- **Resolution:** Modified the webhook responder mapping expression to force string casting using `{{ $json.query["hub.challenge"] + "" }}` and set the HTTP Content-Type strictly to `text/plain`.
+| Factor | Max Points | Scoring Logic |
+| :--- | :---: | :--- |
+| **Intent** | 20 | Buy/Invest → 20pts \| Rent → 10pts |
+| **Timeline** | 20 | Immediate/3 months → 20pts \| 6 months → 10pts |
+| **Financing** | 20 | Cash/Mortgage → 20pts \| Unknown → 0pts |
+| **Budget** | 30 | ≥5M AED → 30pts \| 1M-5M → 20pts \| <1M → 10pts |
+| **Golden Visa Interest** | 10 | Yes → 10pts |
 
-### 2. SQL Injection Prevention via Parametrization
-- **Challenge:** Initial chat history lookup nodes constructed query strings by directly interpolating dynamic payload values: `WHERE phone_number = '{{ $json.phone_number }}'`. This introduced vulnerabilities to SQL Injection.
-- **Resolution:** Parameterized all PostgreSQL nodes by replacing string interpolations with positional arguments (`$1`) and matching them directly to the node's query parameters collection, sanitizing user inputs at the driver level.
+**Lead Tiers:**
+- 🔴 **Tier A (80-100pts):** Hot Lead — contact immediately
+- 🟠 **Tier B (50-79pts):** Warm Lead — follow up within 24h
+- 🟡 **Tier C (30-49pts):** Cool Lead — add to nurture sequence
+- ⚪ **Tier D (<30pts):** Cold Lead — low priority
 
-### 3. PostgreSQL SERIAL Primary Key Constraints
-- **Challenge:** Database insert operations frequently crashed with duplicate key violations because the low-code canvas explicitly passed `id: 0` in the insert payloads, overriding PostgreSQL's automatic serialization sequence.
-- **Resolution:** Surgically removed the `id` column mapping from all insert nodes. This offloaded identifier increments to the database engine's native `SERIAL PRIMARY KEY` handler.
+Budgets are **currency-normalized** to AED before scoring (supporting USD, EUR, and AED inputs).
 
-### 4. Lead Profile Update Upsert Logic
-- **Challenge:** Returning leads caused database constraint errors when the system attempted to insert new rows for existing phone numbers, which violated the table's `UNIQUE` constraint.
-- **Resolution:** Reconfigured the database mapping node to perform an SQL `UPSERT` matching on the `phone_number` key rather than a normal `INSERT`, ensuring existing profiles are updated while new leads are appended.
+---
+
+## 🛡️ 4-Layer Security Architecture
+
+| Layer | Mechanism | Purpose |
+| :--- | :--- | :--- |
+| **Layer 1** | Input regex scanner | Detects prompt injection, script tokens, oversized payloads |
+| **Layer 2** | Hardened system prompts | Instruction boundary enforcement on all LLM calls |
+| **Layer 3** | Output leakage scanner | Prevents internal system instructions from appearing in responses |
+| **Layer 4** | Rate limiter | Throttles messages per phone number to prevent API abuse |
+
+---
+
+## 🗄️ Database Schema
+
+**PostgreSQL (Operational Data):**
+
+| Table | Contents |
+| :--- | :--- |
+| `incoming_messages` | All raw Meta Webhook payloads |
+| `voice_transcriptions` | Whisper STT outputs and cleaned reformulations |
+| `ai_responses` | Yara's conversational replies and routing flags |
+| `security_events` | Security incident ledger |
+| `lead_qualification` | Final structured lead records |
+
+**DuckDB (Market Analytics):**
+
+| File | Contents |
+| :--- | :--- |
+| `data/transactions.duckdb` | 34MB of real Dubai Land Department transaction records including prices, rents, yields, and community data |
+
+> ⚠️ The `data/` directory is excluded from this repository via `.gitignore`. You must supply your own DuckDB transaction database file to enable the RAG market queries.
+
+---
+
+## 🧩 Key Engineering Challenges Solved
+
+### 1. Hallucination Prevention via RAG Grounding
+Real estate agents cannot afford inaccurate price data. By strictly routing all market queries through the DuckDB SQL agent and instructing Yara she is *"forbidden from quoting any number unless it is returned by the database tool"*, we eliminated LLM-generated price hallucinations.
+
+### 2. Polyglot Microservice Architecture
+The RAG analytics engine (Python/DuckDB/LangChain) runs inside a dedicated Docker container. n8n communicates with it via `HTTP POST` over the internal Docker bridge network (`whatsapp-net`). This decoupled approach means the messaging layer (n8n) and analytics layer (FastAPI) can be upgraded, replaced, or scaled independently.
+
+### 3. Meta Webhook Handshake Casting
+The Meta Developer API sends `hub.challenge` as a numeric integer but requires it returned as a raw `text/plain` string. The n8n responder was explicitly configured to force string casting: `{{ $json.query["hub.challenge"] + "" }}`.
+
+### 4. SQL Injection Prevention
+All PostgreSQL nodes use positional parameterization (`$1`, `$2`) rather than direct string interpolation, sanitizing inputs at the driver level.
 
 ### 5. Multi-Currency Lead Scoring Normalization
-- **Challenge:** Lead scoring code nodes misclassified international leads since they evaluated raw budget amounts (e.g., scoring $1.5M USD lower than a 5M AED threshold).
-- **Resolution:** Programmed a currency normalizer inside the evaluation node that standardizes international currencies (USD, EUR) to AED equivalent values based on exchange rates before calculating lead scoring tiers.
+Lead budgets submitted in USD or EUR are converted to AED equivalent values before scoring, ensuring international leads are scored correctly regardless of the currency they stated.
 
 ---
 
-## Local Setup and Installation
+## 🚀 Local Setup and Installation
 
 ### Prerequisites
-- Docker and Docker Compose installed.
-- An OpenAI API Key (required for Whisper and GPT-4o-Mini nodes).
-- A Meta Developer App linked to the WhatsApp Business Sandbox.
-- Ngrok installed (for local tunnel forwarding).
+- Docker and Docker Compose installed
+- OpenAI API Key (GPT-4o-mini + Whisper)
+- Meta Developer App linked to a WhatsApp Business Sandbox number
+- Ngrok (for local tunnel forwarding during development)
 
 ### Steps to Run
 
 1. **Clone the repository:**
    ```bash
-   git clone <your-repository-url>
+   git clone https://github.com/ShaikTanzeel/Whatsapp_Realestate_Lead_Generation_Chatbot
    cd Whatsapp_Realestate_Lead_Generation_Chatbot
    ```
 
 2. **Configure environment variables:**
-   Copy the example template and populate it with your local credentials and API keys:
    ```bash
    cp .env.example .env
+   # Fill in your OpenAI, Meta, Postgres, and Google Sheets credentials
    ```
 
-3. **Start the local Docker containers:**
-   Use the provided automated script to verify Docker status, load environment variables, launch PostgreSQL and n8n services, and open the ngrok tunnel:
-   - **On Windows (PowerShell):**
-     ```powershell
-     .\scripts\start.ps1
-     ```
-   - **On Linux / macOS (Bash):**
-     ```bash
-     chmod +x ./scripts/start.sh
-     ./scripts/start.sh
-     ```
-
-4. **Verify the database tables:**
-   Verify that database containers are running and initialize the schemas:
+3. **Launch all containers:**
    ```powershell
-   Get-Content init.sql | docker exec -i whatsapp_postgres psql -U postgres_admin -d whatsapp_lead_db
+   # Windows
+   .\scripts\start.ps1
+
+   # Linux / macOS
+   chmod +x ./scripts/start.sh && ./scripts/start.sh
+   ```
+   This starts: PostgreSQL, n8n, pgAdmin, and the RAG FastAPI microservice.
+
+4. **Verify the RAG service is healthy:**
+   ```bash
+   curl http://localhost:8000/health
+   # Expected: {"status": "healthy", "database_connected": true}
    ```
 
-5. **Import and Configure n8n Workflow:**
-   - Log in to your local dashboard at `http://localhost:5678`.
-   - Import the `main_whatsapp_flow.json` file.
-   - Configure your Meta and OpenAI credentials inside the respective nodes.
-   - Copy the public webhook URL printed by the startup script and register it in your Meta Developer Portal callback settings.
+5. **Initialize the database schema:**
+   ```powershell
+   Get-Content init.sql | docker exec -i whatsapp_postgres psql -U postgres_admin -d n8n_database
+   ```
+
+6. **Import and configure the n8n workflow:**
+   - Open `http://localhost:5678`
+   - Import `main_whatsapp_flow.json`
+   - Configure your OpenAI and Meta credentials inside the respective nodes
+   - Register the public ngrok webhook URL in your Meta Developer Portal
+
+---
+
+## 🧰 Tech Stack
+
+| Component | Technology |
+| :--- | :--- |
+| **Orchestration** | n8n (self-hosted via Docker) |
+| **Conversational AI** | OpenAI GPT-4o-mini |
+| **Voice Transcription** | OpenAI Whisper |
+| **Market Analytics API** | Python · FastAPI · LangChain · DuckDB |
+| **Operational Database** | PostgreSQL 16 |
+| **CRM** | Google Sheets (via n8n connector) |
+| **Infrastructure** | Docker Compose · ngrok (development) |
+| **Security** | 4-layer pipeline: Regex · LLM hardening · Output scanner · Rate limiting |
+| **Compliance** | UAE PDPL (first-message consent + data deletion flows) |
