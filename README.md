@@ -31,67 +31,68 @@ The pipeline is divided into two decoupled layers:
 
 ### Layer 1: The n8n Orchestration Layer (Conversational Intelligence)
 
-```
-WhatsApp Message
-       │
-       ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     n8n Workflow Engine                      │
-│                                                             │
-│  [Message Router] ──► [Voice Transcription: Whisper]        │
-│         │                        │                          │
-│         └──────────► [Cleanup Agent: GPT-4o-mini]           │
-│                               │                             │
-│                     [Language Detector]                      │
-│                          │        │                         │
-│                      [is Arabic?]                           │
-│                    true │    │ false                        │
-│                         │    │                              │
-│              [Translate to English]  │                      │
-│                         └────┘                              │
-│                               │                             │
-│                     [Security Scanner]                       │
-│                        │             │                      │
-│                  [Blocked]     [Safe → Yara Agent]          │
-│                                      │                      │
-│                             [Parse Output Flag]             │
-│                                      │                      │
-│            ┌─────────────────────────┤                      │
-│       [CONTINUE]              [QUALIFIED]  [HANDOFF]        │
-│            │                      │             │           │
-│      [is Arabic?]         [Data Extractor]  [Human]         │
-│      true │ false          [Score + CRM]                    │
-│           │   │                                             │
-│  [Translate to Arabic] │                                    │
-│           └───┘                                             │
-│                │                                            │
-│     [Send WhatsApp Response]                                │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A(["📱 WhatsApp Incoming Message"]):::input
+    A --> B{"🔀 Message Router"}
+
+    B -->|"🎙️ Voice Note"| C["Whisper\nTranscription"]
+    B -->|"💬 Text"| E
+    C --> D["Cleanup Agent\nGPT-4o-mini"]
+    D --> E["🌐 Language Detector\nGPT-4o-mini"]
+
+    E -->|"ar"| F["Translate Arabic\n→ English"]
+    E -->|"en"| G
+    F --> G["🛡️ Security Scanner\nRegex + LLM"]
+
+    G -->|"⛔ Blocked"| H["Log Incident +\nCanned Response"]
+    G -->|"✅ Safe"| I["🤖 Yara Agent\nGPT-4o-mini"]
+
+    I -->|"CONTINUE"| J{"Was input\nArabic?"}
+    I -->|"QUALIFIED"| K["Data Extractor\n+ Lead Scorer"]
+    I -->|"HANDOFF"| L["Human Agent\nNotification"]
+
+    K --> M["📊 Google Sheets CRM\nUpsert Lead Record"]
+    J -->|"Yes"| N["Translate English\n→ Arabic"]
+    J -->|"No"| O
+    N --> O(["📤 Send WhatsApp Response"])
+
+    classDef input fill:#1a1a2e,stroke:#e94560,stroke-width:2px,color:#ffffff
+    classDef default fill:#16213e,stroke:#0f3460,stroke-width:1px,color:#e0e0e0
+    classDef safe fill:#0d3b2e,stroke:#00b894,stroke-width:2px,color:#ffffff
+    classDef danger fill:#3b0d0d,stroke:#e74c3c,stroke-width:2px,color:#ffffff
+    classDef output fill:#1a1a2e,stroke:#e94560,stroke-width:2px,color:#ffffff
+
+    class A input
+    class H danger
+    class M,O safe
+    class L danger
 ```
 
 ### Layer 2: The RAG Analytics Microservice (Market Intelligence)
 
 When Yara (the AI agent) detects a market question (price, yield, volume), she calls an external tool — a **containerized FastAPI microservice** that queries a real DLD database.
 
-```
-Yara Agent (n8n)
-       │
-       ▼  HTTP POST
-┌─────────────────────────────────────────────────┐
-│       FastAPI Container (Port 8000)              │
-│                                                  │
-│  [Receive English question]                      │
-│        │                                         │
-│  [LLM Text-to-SQL: GPT-4o-mini]                 │
-│        │ SQL Query                               │
-│  [DuckDB Engine → transactions.duckdb (34MB)]   │
-│        │ Raw rows                                │
-│  [Format WhatsApp-friendly brief]               │
-│        │ Return response                         │
-└─────────────────────────────────────────────────┘
-       │
-       ▼
-Yara reads the data and bridges back to qualification
+```mermaid
+flowchart LR
+    Y(["🤖 Yara Agent\nn8n"]):::agent
+
+    subgraph DOCKER ["🐳  FastAPI Container — Port 8000"]
+        direction TB
+        R["Receive English\nQuestion"]:::step
+        S["Text-to-SQL\nGPT-4o-mini"]:::step
+        DB[("DuckDB\ntransactions.duckdb\n34 MB")]:::db
+        F["Format WhatsApp\nReport"]:::step
+        R --> S --> DB --> F
+    end
+
+    Y -->|"HTTP POST /query"| R
+    F -->|"JSON response"| Y
+
+    classDef agent fill:#1a1a2e,stroke:#a29bfe,stroke-width:2px,color:#ffffff
+    classDef step fill:#16213e,stroke:#74b9ff,stroke-width:1px,color:#e0e0e0
+    classDef db fill:#0d3b2e,stroke:#00b894,stroke-width:2px,color:#ffffff
+    style DOCKER fill:#0f0f1a,stroke:#6c5ce7,stroke-width:2px,color:#a29bfe
 ```
 
 ---
